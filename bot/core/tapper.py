@@ -32,7 +32,7 @@ class Tapper:
     async def login(self, http_client: aiohttp.ClientSession, tg_web_data: str) -> str:
         response_text = ''
         try:
-            http_client.headers["Authorization"] = None
+            del http_client.headers["Authorization"]
             response = await http_client.post(url='https://api.hamsterkombat.io/auth/auth-by-telegram-webapp',
                                               json={"initDataRaw": tg_web_data, "fingerprint": FINGERPRINT})
             response_text = await response.text()
