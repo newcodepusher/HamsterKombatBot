@@ -674,7 +674,7 @@ FINGERPRINT = {
                         'ZERO_TO_ONE_EXT=37727',
                     ],
                 },
-                'duration': 21,
+                'duration': 22,
             },
         },
     }

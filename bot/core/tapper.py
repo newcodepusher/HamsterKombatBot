@@ -32,7 +32,8 @@ class Tapper:
     async def login(self, http_client: aiohttp.ClientSession, tg_web_data: str) -> str:
         response_text = ''
         try:
-            del http_client.headers["Authorization"]
+            if "Authorization" in  http_client.headers:
+                del http_client.headers["Authorization"]
             response = await http_client.post(url='https://api.hamsterkombat.io/auth/auth-by-telegram-webapp',
                                               json={"initDataRaw": tg_web_data, "fingerprint": FINGERPRINT})
             response_text = await response.text()
@@ -275,9 +276,9 @@ class Tapper:
 
                     access_token_created_time = time()
 
-                if time() - sync_time >= 60 * 60:
-                    sync_time = time()
+                    logger.info(http_client.headers)
 
+                if time() - sync_time >= 60 * 60:
                     await self.get_me_telegram(http_client=http_client)
                     game_config = await self.get_config(http_client=http_client)
 
@@ -333,6 +334,8 @@ class Tapper:
                         status = await self.select_exchange(http_client=http_client, exchange_id="bybit")
                         if status is True:
                             logger.success(f"{self.session_name} | Successfully selected exchange <y>Bybit</y>")
+
+                    sync_time = time()
 
                 taps = randint(a=settings.RANDOM_TAPS_COUNT[0], b=settings.RANDOM_TAPS_COUNT[1])
 
