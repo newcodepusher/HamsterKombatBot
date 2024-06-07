@@ -32,6 +32,7 @@ class Tapper:
     async def login(self, http_client: aiohttp.ClientSession, tg_web_data: str) -> str:
         response_text = ''
         try:
+            http_client.headers["Authorization"] = None
             response = await http_client.post(url='https://api.hamsterkombat.io/auth/auth-by-telegram-webapp',
                                               json={"initDataRaw": tg_web_data, "fingerprint": FINGERPRINT})
             response_text = await response.text()
@@ -264,7 +265,7 @@ class Tapper:
 
         while True:
             try:
-                if time() - access_token_created_time >= 24 * 60 * 60:
+                if time() - access_token_created_time >= 2 * 60 * 60:
                     access_token = await self.login(http_client=http_client, tg_web_data=tg_web_data)
 
                     if not access_token:
