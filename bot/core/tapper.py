@@ -254,6 +254,7 @@ class Tapper:
 
     async def run(self) -> None:
         access_token_created_time = 0
+        sync_time = 0
         turbo_time = 0
         active_turbo = False
 
@@ -263,7 +264,7 @@ class Tapper:
 
         while True:
             try:
-                if time() - access_token_created_time >= 3600:
+                if time() - access_token_created_time >= 24 * 60 * 60:
                     access_token = await self.login(http_client=http_client, tg_web_data=tg_web_data)
 
                     if not access_token:
@@ -272,6 +273,9 @@ class Tapper:
                     http_client.headers["Authorization"] = f"Bearer {access_token}"
 
                     access_token_created_time = time()
+
+                if time() - sync_time >= 60 * 60:
+                    sync_time = time()
 
                     await self.get_me_telegram(http_client=http_client)
                     game_config = await self.get_config(http_client=http_client)
@@ -448,7 +452,7 @@ class Tapper:
 
             except Exception as error:
                 logger.error(f"{self.session_name} | Unknown error: {error}")
-                await asyncio.sleep(delay=3)
+                await asyncio.sleep(delay=60)
 
             else:
                 sleep_between_clicks = randint(a=settings.SLEEP_BETWEEN_TAP[0], b=settings.SLEEP_BETWEEN_TAP[1])
