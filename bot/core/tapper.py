@@ -6,89 +6,28 @@ from random import randint
 from urllib.parse import unquote
 
 import aiohttp
-from aiohttp_proxy import ProxyConnector
-from better_proxy import Proxy
-from pyrogram import Client
-from pyrogram.errors import Unauthorized, UserDeactivated, AuthKeyUnregistered, FloodWait
-from pyrogram.raw.functions.messages import RequestWebView
+
+from .headers import headers
 
 from bot.config import settings
 from bot.utils import logger
+
+from bot.utils.scripts import *
 from bot.utils.fingerprint import FINGERPRINT
-from bot.utils.scripts import escape_html, decode_cipher
-from bot.exceptions import InvalidSession
-from .headers import headers
 
 
 class Tapper:
-    def __init__(self, tg_client: Client):
-        self.session_name = tg_client.name
-        self.tg_client = tg_client
+    def __init__(self, session: dict):
+        self.session_name = session["name"]
+        self.url = session["url"]
 
-    async def get_tg_web_data(self, proxy: str | None) -> str:
-        if proxy:
-            proxy = Proxy.from_str(proxy)
-            proxy_dict = dict(
-                scheme=proxy.protocol,
-                hostname=proxy.host,
-                port=proxy.port,
-                username=proxy.login,
-                password=proxy.password
-            )
-        else:
-            proxy_dict = None
+    async def get_tg_web_data(self) -> str:
+        auth_url = self.url.strip()
+        tg_web_data = unquote(
+            string=unquote(
+                string=auth_url.split('tgWebAppData=', maxsplit=1)[1].split('&tgWebAppVersion', maxsplit=1)[0]))
 
-        self.tg_client.proxy = proxy_dict
-
-        try:
-            if not self.tg_client.is_connected:
-                try:
-                    await self.tg_client.connect()
-                except (Unauthorized, UserDeactivated, AuthKeyUnregistered):
-                    raise InvalidSession(self.session_name)
-
-            dialogs = self.tg_client.get_dialogs()
-            async for dialog in dialogs:
-                if dialog.chat and dialog.chat.username and dialog.chat.username == 'hamster_kombat_bot':
-                    break
-
-            while True:
-                try:
-                    peer = await self.tg_client.resolve_peer('hamster_kombat_bot')
-                    break
-                except FloodWait as fl:
-                    fls = fl.value
-
-                    logger.warning(f"{self.session_name} | FloodWait {fl}")
-                    fls *= 2
-                    logger.info(f"{self.session_name} | Sleep {fls}s")
-
-                    await asyncio.sleep(fls)
-
-            web_view = await self.tg_client.invoke(RequestWebView(
-                peer=peer,
-                bot=peer,
-                platform='android',
-                from_bot_menu=False,
-                url='https://hamsterkombat.io/'
-            ))
-
-            auth_url = web_view.url
-            tg_web_data = unquote(
-                string=unquote(
-                    string=auth_url.split('tgWebAppData=', maxsplit=1)[1].split('&tgWebAppVersion', maxsplit=1)[0]))
-
-            if self.tg_client.is_connected:
-                await self.tg_client.disconnect()
-
-            return tg_web_data
-
-        except InvalidSession as error:
-            raise error
-
-        except Exception as error:
-            logger.error(f"{self.session_name} | Unknown error during Authorization: {error}")
-            await asyncio.sleep(delay=3)
+        return tg_web_data
 
     async def login(self, http_client: aiohttp.ClientSession, tg_web_data: str) -> str:
         response_text = ''
@@ -313,37 +252,17 @@ class Tapper:
                          f"Response text: {escape_html(response_text)[:256]}...")
             await asyncio.sleep(delay=3)
 
-    async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: Proxy) -> None:
-        try:
-            response = await http_client.get(url='https://httpbin.org/ip', timeout=aiohttp.ClientTimeout(5))
-            ip = (await response.json()).get('origin')
-            logger.info(f"{self.session_name} | Proxy IP: {ip}")
-        except Exception as error:
-            logger.error(f"{self.session_name} | Proxy: {proxy} | Error: {error}")
-
-    async def run(self, proxy: str | None) -> None:
+    async def run(self) -> None:
         access_token_created_time = 0
         turbo_time = 0
         active_turbo = False
 
-        proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
-        http_client = aiohttp.ClientSession(headers=headers, connector=proxy_conn)
+        http_client = aiohttp.ClientSession(headers=headers)
 
-        if proxy:
-            await self.check_proxy(http_client=http_client, proxy=proxy)
-
-        tg_web_data = await self.get_tg_web_data(proxy=proxy)
+        tg_web_data = await self.get_tg_web_data()
 
         while True:
             try:
-                if http_client.closed:
-                    if proxy_conn:
-                        if not proxy_conn.closed:
-                            proxy_conn.close()
-
-                    proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
-                    http_client = aiohttp.ClientSession(headers=headers, connector=proxy_conn)
-
                 if time() - access_token_created_time >= 3600:
                     access_token = await self.login(http_client=http_client, tg_web_data=tg_web_data)
 
@@ -517,9 +436,6 @@ class Tapper:
 
                     if available_energy < settings.MIN_AVAILABLE_ENERGY:
                         await http_client.close()
-                        if proxy_conn:
-                            if not proxy_conn.closed:
-                                proxy_conn.close()
 
                         random_sleep = randint(settings.SLEEP_BY_MIN_ENERGY[0], settings.SLEEP_BY_MIN_ENERGY[1])
 
@@ -529,9 +445,6 @@ class Tapper:
                         await asyncio.sleep(delay=random_sleep)
 
                         access_token_created_time = 0
-
-            except InvalidSession as error:
-                raise error
 
             except Exception as error:
                 logger.error(f"{self.session_name} | Unknown error: {error}")
@@ -547,8 +460,5 @@ class Tapper:
                 await asyncio.sleep(delay=sleep_between_clicks)
 
 
-async def run_tapper(tg_client: Client, proxy: str | None):
-    try:
-        await Tapper(tg_client=tg_client).run(proxy=proxy)
-    except InvalidSession:
-        logger.error(f"{tg_client.name} | Invalid Session")
+async def run_tapper(session: dict):
+    await Tapper(session=session).run()
