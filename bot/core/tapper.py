@@ -418,7 +418,8 @@ class Tapper:
                             price = upgrade['price']
                             profit = upgrade['profitPerHourDelta']
 
-                            if balance < price:
+                            free_money = balance - settings.BALANCE_TO_SAVE
+                            if free_money < price:
                                 continue
 
                             logger.info(f"{self.session_name} | Sleep 5s before upgrade <e>{upgrade_id}</e>")
