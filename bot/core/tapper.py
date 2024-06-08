@@ -418,6 +418,9 @@ class Tapper:
                             price = upgrade['price']
                             profit = upgrade['profitPerHourDelta']
 
+                            if balance < price:
+                                continue
+
                             logger.info(f"{self.session_name} | Sleep 5s before upgrade <e>{upgrade_id}</e>")
                             await asyncio.sleep(delay=5)
 
