@@ -403,7 +403,7 @@ class Tapper:
 
                                 significance = profit / max(price, 1)
 
-                                if (level <= settings.MAX_LEVEL and profit > 0 and price < max_price_limit):
+                                if level <= settings.MAX_LEVEL and profit > 0:
                                     heapq.heappush(queue, (-significance, upgrade_id, upgrade))
 
                             if not queue:
