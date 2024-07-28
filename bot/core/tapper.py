@@ -3,6 +3,7 @@ import asyncio
 from time import time
 from random import randint
 from datetime import datetime, timedelta
+from urllib.parse import unquote
 
 import aiohttp
 from aiohttp_proxy import ProxyConnector
@@ -28,25 +29,32 @@ from bot.api.ip import get_ip_info
 from bot.api.exchange import select_exchange
 from bot.api.tasks import get_nuxt_builds, get_tasks, get_airdrop_tasks, get_daily
 from bot.utils.scripts import decode_cipher, get_headers, get_mini_game_cipher
-from bot.utils.tg_web_data import get_tg_web_data
 from bot.utils.proxy import check_proxy
 
 
 class Tapper:
-    def __init__(self, tg_client: Client):
-        self.session_name = tg_client.name
-        self.tg_client = tg_client
+    def __init__(self, session: dict):
+        self.session_name = session["name"]
+        self.url = session["url"]
+
+    async def get_tg_web_data(self) -> str:
+        auth_url = self.url.strip()
+        tg_web_data = unquote(
+            string=unquote(
+                string=auth_url.split('tgWebAppData=', maxsplit=1)[1].split('&tgWebAppVersion', maxsplit=1)[0]))
+
+        return tg_web_data
 
     async def run(self, proxy: str | None) -> None:
         access_token_created_time = 0
 
         if settings.USE_RANDOM_DELAY_IN_RUN:
             random_delay = randint(settings.RANDOM_DELAY_IN_RUN[0], settings.RANDOM_DELAY_IN_RUN[1])
-            logger.info(f"{self.tg_client.name} | Run for <lw>{random_delay}s</lw>")
+            logger.info(f"{self.session_name} | Run for <lw>{random_delay}s</lw>")
 
             await asyncio.sleep(delay=random_delay)
 
-        headers = get_headers(name=self.tg_client.name)
+        headers = get_headers(name=self.session_name)
         proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
 
         http_client = aiohttp.ClientSession(headers=headers, connector=proxy_conn)
@@ -54,7 +62,7 @@ class Tapper:
         if proxy:
             await check_proxy(http_client=http_client, proxy=proxy, session_name=self.session_name)
 
-        tg_web_data = await get_tg_web_data(tg_client=self.tg_client, proxy=proxy, session_name=self.session_name)
+        tg_web_data = await self.get_tg_web_data()
 
         while True:
             try:
@@ -399,8 +407,5 @@ class Tapper:
                 await asyncio.sleep(delay=sleep_between_clicks)
 
 
-async def run_tapper(tg_client: Client, proxy: str | None):
-    try:
-        await Tapper(tg_client=tg_client).run(proxy=proxy)
-    except InvalidSession:
-        logger.error(f"{tg_client.name} | Invalid Session")
+async def run_tapper(session: dict):
+    await Tapper(session=session).run(proxy=None)
