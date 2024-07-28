@@ -110,11 +110,11 @@ async def get_mini_game_cipher(http_client: aiohttp.ClientSession,
         await page.set_content(modified_html)
 
         actions = [
-            {'type': 'mousemove', 'x': 100, 'y': 228, 'timestamp': 1721665313608},
+            {'type': 'mousemove', 'x': 100, 'y': 225, 'timestamp': 1721665313608},
             {'type': 'mousemove', 'x': 100, 'y': 229, 'timestamp': 1721665313614},
             {'type': 'mousemove', 'x': 99, 'y': 230, 'timestamp': 1721665313620},
             {'type': 'mousemove', 'x': 99, 'y': 231, 'timestamp': 1721665313626},
-            {'type': 'mousemove', 'x': 98, 'y': 232, 'timestamp': 1721665313632},
+            {'type': 'mousemove', 'x': 98, 'y': 235, 'timestamp': 1721665313632},
             {'type': 'mousemove', 'x': 98, 'y': 233, 'timestamp': 1721665313638},
             {'type': 'mousemove', 'x': 98, 'y': 234, 'timestamp': 1721665313644},
             {'type': 'mousemove', 'x': 97, 'y': 234, 'timestamp': 1721665313650},
