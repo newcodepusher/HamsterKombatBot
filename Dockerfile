@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright/python:v1.41.0-focal as builder
+FROM python:3.11.9-slim as builder
 LABEL org.opencontainers.image.source=https://github.com/shamhi/HamsterKombatBot
 WORKDIR /app
 
@@ -8,7 +8,7 @@ RUN pip3 install --upgrade pip setuptools wheel && \
 
 RUN playwright install --with-deps
 
-FROM mcr.microsoft.com/playwright/python:v1.41.0-focal
+FROM python:3.11.9-slim
 
 WORKDIR /app
 
