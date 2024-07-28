@@ -1,4 +1,4 @@
-FROM "mcr.microsoft.com/playwright/python" as builder
+FROM mcr.microsoft.com/playwright/python as builder
 LABEL org.opencontainers.image.source=https://github.com/shamhi/HamsterKombatBot
 WORKDIR /app
 
@@ -8,7 +8,7 @@ RUN pip3 install --upgrade pip setuptools wheel && \
 
 RUN playwright install --with-deps chromium
 
-FROM "mcr.microsoft.com/playwright/python"
+FROM mcr.microsoft.com/playwright/python
 
 WORKDIR /app
 
