@@ -26,7 +26,6 @@ from bot.api.promo import get_promos, apply_promo
 from bot.api.minigame import start_daily_mini_game, claim_daily_mini_game
 from bot.api.tasks import get_tasks, get_airdrop_tasks, check_task
 from bot.api.exchange import select_exchange
-from bot.api.tasks import get_nuxt_builds, get_tasks, get_airdrop_tasks, get_daily
 from bot.utils.scripts import decode_cipher, get_headers, get_mini_game_cipher
 from bot.utils.proxy import check_proxy
 from bot.api.nuxt import get_nuxt_builds
