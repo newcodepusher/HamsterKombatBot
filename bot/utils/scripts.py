@@ -1,5 +1,7 @@
 import os
 import glob
+import time
+import uuid
 import random
 import string
 import base64
@@ -7,6 +9,7 @@ import asyncio
 import hashlib
 
 import aiohttp
+import aiohttp_proxy
 from fake_useragent import UserAgent
 from playwright.async_api import async_playwright
 
@@ -170,3 +173,99 @@ async def get_mini_game_cipher(http_client: aiohttp.ClientSession,
         await browser.close()
 
         return ''
+
+
+def generate_client_id():
+    current_time = int(time.time() * 1000)
+    random_part = random.randint(100, 999)
+    random_first = int(str(current_time)[:10] + str(random_part))
+
+    return f"{random_first}-3472514666961597005"
+
+
+def generate_event_id():
+    return str(uuid.uuid4())
+
+
+async def get_promo_code(app_token: str,
+                         promo_id: str,
+                         promo_title: str,
+                         max_attempts: int,
+                         event_timeout: int,
+                         session_name: str,
+                         proxy: str):
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Host": "api.gamepromo.io"
+    }
+
+    proxy_conn = aiohttp_proxy.ProxyConnector().from_url(proxy) if proxy else None
+
+    async with aiohttp.ClientSession(headers=headers, connector=proxy_conn) as http_client:
+        client_id = generate_client_id()
+
+        json_data = {
+            "appToken": app_token,
+            "clientId": client_id,
+            "clientOrigin": "deviceid"
+        }
+
+        response = await http_client.post(url="https://api.gamepromo.io/promo/login-client", json=json_data)
+
+        response_text = await response.text()
+        response_json = await response.json()
+        access_token = response_json.get("clientToken")
+
+        if not access_token:
+            logger.debug(f"{session_name} | Can't login to api.gamepromo.io | Try with proxy | "
+                         f"Response text: {escape_html(response_text)[:256]}...")
+            return
+
+        http_client.headers["Authorization"] = f"Bearer {access_token}"
+
+        await asyncio.sleep(delay=1)
+
+        attempts = 0
+
+        while attempts < max_attempts:
+            try:
+
+                event_id = generate_event_id()
+                json_data = {
+                    "promoId": promo_id,
+                    "eventId": event_id,
+                    "eventOrigin": "undefined"
+                }
+
+                response = await http_client.post(url="https://api.gamepromo.io/promo/register-event", json=json_data)
+
+                response_json = await response.json()
+                has_code = response_json.get("hasCode", False)
+
+                if has_code:
+                    json_data = {
+                        "promoId": promo_id
+                    }
+
+                    response = await http_client.post(url="https://api.gamepromo.io/promo/create-code", json=json_data)
+                    response.raise_for_status()
+
+                    response_json = await response.json()
+                    promo_code = response_json.get("promoCode")
+
+                    if promo_code:
+                        logger.info(f"{session_name} | "
+                                    f"Promo code is found for <lm>{promo_title}</lm> game: <lc>{promo_code}</lc>")
+                        return promo_code
+            except Exception as error:
+                logger.debug(f"{session_name} | Error while getting promo code: {error}")
+
+            attempts += 1
+
+            logger.debug(
+                f"{session_name} | Attempt <lr>{attempts}</lr> was successful for <lm>{promo_title}</lm> game | "
+                f"Sleep <lw>{event_timeout}s</lw> before <lr>{attempts + 1}</lr> attempt to get promo code")
+            await asyncio.sleep(delay=event_timeout)
+
+    logger.debug(f"{session_name} | "
+                 f"Promo code not found out of <lw>{max_attempts}</lw> attempts for <lm>{promo_title}</lm> game ")

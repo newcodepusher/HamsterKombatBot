@@ -6,30 +6,30 @@ from datetime import datetime, timedelta
 from urllib.parse import unquote
 
 import aiohttp
-from aiohttp_proxy import ProxyConnector
+import aiohttp_proxy
 from pyrogram import Client
 
-from bot.api.combo import claim_daily_combo, get_combo_cards
 from bot.config import settings
 from bot.utils.logger import logger
+from bot.utils.proxy import check_proxy
+from bot.utils.tg_web_data import get_tg_web_data
+from bot.utils.scripts import decode_cipher, get_headers, get_mini_game_cipher, get_promo_code
 from bot.exceptions import InvalidSession
-from bot.api.auth import login, get_account_info
-from bot.api.clicker import (
-    apply_boost,
-    get_profile_data,
-    get_upgrades,
-    buy_upgrade,
-    get_boosts,
-    claim_daily_cipher,
-    send_taps,
-    get_config,
-)
-from bot.api.mini_game import start_daily_mini_game, claim_daily_mini_game
-from bot.api.ip import get_ip_info
+
+from bot.api.auth import login
+from bot.api.clicker import get_config, get_profile_data, get_ip_info, get_account_info, get_skins, send_taps
+from bot.api.boosts import get_boosts, apply_boost
+from bot.api.upgrades import get_upgrades, buy_upgrade
+from bot.api.combo import claim_daily_combo, get_combo_cards
+from bot.api.cipher import claim_daily_cipher
+from bot.api.promo import get_promos, apply_promo
+from bot.api.minigame import start_daily_mini_game, claim_daily_mini_game
+from bot.api.tasks import get_tasks, get_airdrop_tasks, check_task
 from bot.api.exchange import select_exchange
 from bot.api.tasks import get_nuxt_builds, get_tasks, get_airdrop_tasks, get_daily
 from bot.utils.scripts import decode_cipher, get_headers, get_mini_game_cipher
 from bot.utils.proxy import check_proxy
+from bot.api.nuxt import get_nuxt_builds
 
 
 class Tapper:
@@ -55,7 +55,7 @@ class Tapper:
             await asyncio.sleep(delay=random_delay)
 
         headers = get_headers(name=self.session_name)
-        proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
+        proxy_conn = aiohttp_proxy.ProxyConnector().from_url(proxy) if proxy else None
 
         http_client = aiohttp.ClientSession(headers=headers, connector=proxy_conn)
 
@@ -64,6 +64,9 @@ class Tapper:
 
         tg_web_data = await self.get_tg_web_data()
 
+        if not tg_web_data:
+            return
+
         while True:
             try:
                 if http_client.closed:
@@ -71,7 +74,7 @@ class Tapper:
                         if not proxy_conn.closed:
                             proxy_conn.close()
 
-                    proxy_conn = (ProxyConnector().from_url(proxy) if proxy else None)
+                    proxy_conn = aiohttp_proxy.ProxyConnector().from_url(proxy) if proxy else None
                     http_client = aiohttp.ClientSession(headers=headers, connector=proxy_conn)
 
                 if time() - access_token_created_time >= 3600:
@@ -99,6 +102,7 @@ class Tapper:
                     tasks = await get_tasks(http_client=http_client)
                     airdrop_tasks = await get_airdrop_tasks(http_client=http_client)
                     ip_info = await get_ip_info(http_client=http_client)
+                    skins = await get_skins(http_client=http_client)
 
                     ip = ip_info.get('ip', 'NO')
                     country_code = ip_info.get('country_code', 'NO')
@@ -120,7 +124,7 @@ class Tapper:
 
                     upgrades = upgrades_data['upgradesForBuy']
                     daily_combo = upgrades_data.get('dailyCombo')
-                    if daily_combo:
+                    if daily_combo and settings.APPLY_COMBO:
                         bonus = daily_combo['bonusCoins']
                         is_claimed = daily_combo['isClaimed']
                         upgraded_list = daily_combo['upgradeIds']
@@ -134,11 +138,11 @@ class Tapper:
                             available_combo_cards = [
                                 data for data in upgrades
                                 if data['isAvailable'] is True
-                                and data['id'] in cards
-                                and data['id'] not in upgraded_list
-                                and data['isExpired'] is False
-                                and data.get('cooldownSeconds', 0) == 0
-                                and data.get('maxLevel', data['level']) >= data['level']
+                                   and data['id'] in cards
+                                   and data['id'] not in upgraded_list
+                                   and data['isExpired'] is False
+                                   and data.get('cooldownSeconds', 0) == 0
+                                   and data.get('maxLevel', data['level']) >= data['level']
                             ]
 
                             start_bonus_round = datetime.strptime(date, "%d-%m-%y").replace(hour=15)
@@ -190,23 +194,35 @@ class Tapper:
                                         logger.success(f"{self.session_name} | Successfully claimed daily combo | "
                                                        f"Bonus: <lg>+{bonus:,}</lg>")
 
-                    daily_task = tasks[-1]
-                    rewards = daily_task['rewardsByDays']
-                    is_completed = daily_task['isCompleted']
-                    days = daily_task['days']
+                    await asyncio.sleep(delay=randint(2, 4))
 
-                    await asyncio.sleep(delay=2)
+                    if settings.APPLY_DAILY_REWARD:
+                        tasks = await get_tasks(http_client=http_client)
 
-                    if is_completed is False:
-                        status = await get_daily(http_client=http_client)
-                        if status is True:
-                            logger.success(f"{self.session_name} | Successfully get daily reward | "
-                                           f"Days: <lm>{days}</lm> | Reward coins: <lg>+{rewards[days - 1]['rewardCoins']}</lg>")
+                        daily_task = tasks[-1]
+                        rewards = daily_task['rewardsByDays']
+                        is_completed = daily_task['isCompleted']
+                        days = daily_task['days']
 
-                    await asyncio.sleep(delay=2)
+                        await asyncio.sleep(delay=2)
+
+                        if not is_completed:
+                            task, profile_data = await check_task(http_client=http_client, task_id="streak_days")
+                            is_completed = task.get('isCompleted')
+
+                            if is_completed:
+                                logger.success(f"{self.session_name} | Successfully get daily reward | "
+                                               f"Days: <lm>{days}</lm> | Reward coins: <lg>+{rewards[days - 1]['rewardCoins']}</lg>")
+                        else:
+                            logger.info(f"{self.session_name} | Daily Reward already claimed today")
+
+                        tasks = await get_tasks(http_client=http_client)
+                        upgrades_data = await get_upgrades(http_client=http_client)
+
+                    await asyncio.sleep(delay=randint(2, 4))
 
                     daily_cipher = game_config.get('dailyCipher')
-                    if daily_cipher:
+                    if daily_cipher and settings.APPLY_DAILY_CIPHER:
                         cipher = daily_cipher['cipher']
                         bonus = daily_cipher['bonusCoins']
                         is_claimed = daily_cipher['isClaimed']
@@ -222,8 +238,10 @@ class Tapper:
 
                         await asyncio.sleep(delay=2)
 
+                    await asyncio.sleep(delay=randint(2, 4))
+
                     daily_mini_game = game_config.get('dailyKeysMiniGame')
-                    if daily_mini_game:
+                    if daily_mini_game and settings.APPLY_DAILY_MINI_GAME:
                         is_claimed = daily_mini_game['isClaimed']
                         seconds_to_next_attempt = daily_mini_game['remainSecondsToNextAttempt']
                         start_date = daily_mini_game['startDate']
@@ -263,14 +281,110 @@ class Tapper:
                                                        f"Total keys: <le>{total_keys}</le> (<lg>+{calc_keys}</lg>)")
                         else:
                             if is_claimed:
-                                logger.info(f"{self.session_name} | Daily Mini Game already claimed")
+                                logger.info(f"{self.session_name} | Daily Mini Game already claimed today")
                             elif seconds_to_next_attempt > 0:
                                 logger.info(f"{self.session_name} | "
                                             f"Need <lw>{seconds_to_next_attempt}s</lw> to next attempt in Mini Game")
                             elif not encoded_body:
                                 logger.info(f"{self.session_name} | Key for Mini Game is not found")
 
-                    await asyncio.sleep(delay=2)
+                    await asyncio.sleep(delay=randint(2, 4))
+
+                    if settings.APPLY_PROMO_CODES:
+                        promos_data = await get_promos(http_client=http_client)
+                        promo_states = promos_data.get('states', [])
+
+                        promo_activates = {promo['promoId']: promo['receiveKeysToday']
+                                           for promo in promo_states}
+
+                        app_tokens = {
+                            "fe693b26-b342-4159-8808-15e3ff7f8767": "74ee0b5b-775e-4bee-974f-63e7f4d5bacb",
+                            "b4170868-cef0-424f-8eb9-be0622e8e8e3": "d1690a07-3780-4068-810f-9b5bbf2931b2",
+                            "c4480ac7-e178-4973-8061-9ed5b2e17954": "82647f43-3f87-402d-88dd-09a90025313f",
+                            "43e35910-c168-4634-ad4f-52fd764a843f": "d28721be-fd2d-4b45-869e-9f253b554e50"
+                        }
+
+                        promos = promos_data.get('promos', [])
+                        for promo in promos:
+                            promo_id = promo['promoId']
+                            app_token = app_tokens.get(promo_id)
+                            if not app_token:
+                                continue
+
+                            title = promo['title']['en']
+                            keys_per_day = promo['keysPerDay']
+                            keys_per_code = 1
+
+                            today_promo_activates_count = promo_activates.get(promo_id, 0)
+
+                            if today_promo_activates_count >= keys_per_day:
+                                logger.info(
+                                    f"{self.session_name} | Promo Codes already claimed today for <lm>{title}</lm> game")
+
+                            while today_promo_activates_count < keys_per_day:
+                                promo_code = await get_promo_code(app_token=app_token,
+                                                                  promo_id=promo_id,
+                                                                  promo_title=title,
+                                                                  max_attempts=15,
+                                                                  event_timeout=20,
+                                                                  session_name=self.session_name,
+                                                                  proxy=proxy)
+
+                                if not promo_code:
+                                    continue
+
+                                profile_data, promo_state = await apply_promo(http_client=http_client,
+                                                                              promo_code=promo_code)
+
+                                if profile_data and promo_state:
+                                    total_keys = profile_data.get('totalKeys', total_keys)
+                                    today_promo_activates_count = promo_state.get('receiveKeysToday',
+                                                                                  today_promo_activates_count)
+
+                                    logger.success(f"{self.session_name} | "
+                                                   f"Successfully activated promo code <lc>{promo_code}</lc> in <lm>{title}</lm> game | "
+                                                   f"Get <ly>{today_promo_activates_count}</ly><lw>/</lw><ly>{keys_per_day}</ly> keys | "
+                                                   f"Total keys: <le>{total_keys}</le> (<lg>+{keys_per_code}</lg>)")
+                                else:
+                                    logger.info(f"{self.session_name} | "
+                                                f"Promo code <lc>{promo_code}</lc> was wrong in <lm>{title}</lm> game | "
+                                                f"Trying again...")
+
+                                await asyncio.sleep(delay=2)
+
+                    await asyncio.sleep(delay=randint(2, 4))
+
+                    if settings.AUTO_COMPLETE_TASKS:
+                        tasks = await get_tasks(http_client=http_client)
+                        for task in tasks:
+                            task_id = task['id']
+                            reward = task['rewardCoins']
+                            is_completed = task['isCompleted']
+
+                            if not task_id.startswith('hamster_youtube'):
+                                continue
+
+                            if not is_completed and reward > 0:
+                                logger.info(f"{self.session_name} | "
+                                            f"Sleep <lw>3s</lw> before complete <ly>{task_id}</ly> task")
+                                await asyncio.sleep(delay=3)
+
+                                task, profile_data = await check_task(http_client=http_client, task_id=task_id)
+                                is_completed = task.get('isCompleted')
+
+                                if is_completed:
+                                    balance = int(profile_data.get('balanceCoins', 0))
+                                    logger.success(f"{self.session_name} | "
+                                                   f"Successfully completed <ly>{task_id}</ly> task | "
+                                                   f"Balance: <lc>{balance}</lc> (<lg>+{reward}</lg>)")
+
+                                    tasks = await get_tasks(http_client=http_client)
+                                else:
+                                    logger.info(f"{self.session_name} | Task <ly>{task_id}</ly> is not complete")
+
+                        upgrades_data = await get_upgrades(http_client=http_client)
+
+                    await asyncio.sleep(delay=randint(2, 4))
 
                     exchange_id = profile_data.get('exchangeId')
                     if not exchange_id:
@@ -278,36 +392,38 @@ class Tapper:
                         if status is True:
                             logger.success(f"{self.session_name} | Successfully selected exchange <ly>Bybit</ly>")
 
+                    await asyncio.sleep(delay=randint(2, 4))
+
                 if settings.USE_TAPS:
                     taps = randint(a=settings.RANDOM_TAPS_COUNT[0], b=settings.RANDOM_TAPS_COUNT[1])
 
-                    player_data = await send_taps(
+                    profile_data = await send_taps(
                         http_client=http_client,
                         available_energy=available_energy,
                         taps=taps,
                     )
 
-                    if not player_data:
+                    if not profile_data:
                         continue
 
-                    available_energy = player_data.get('availableTaps', 0)
-                    new_balance = int(player_data.get('balanceCoins', 0))
+                    available_energy = profile_data.get('availableTaps', 0)
+                    new_balance = int(profile_data.get('balanceCoins', 0))
                     calc_taps = new_balance - balance
                     balance = new_balance
-                    total = int(player_data.get('totalCoins', 0))
-                    earn_on_hour = player_data['earnPassivePerHour']
+                    total = int(profile_data.get('totalCoins', 0))
+                    earn_on_hour = profile_data['earnPassivePerHour']
 
                     logger.success(f"{self.session_name} | Successful tapped! | "
-                                   f"Balance: <c>{balance:,}</c> (<lg>+{calc_taps:,}</lg>) | Total: <le>{total:,}</le>")
+                                   f"Balance: <lc>{balance:,}</lc> (<lg>+{calc_taps:,}</lg>) | Total: <le>{total:,}</le>")
 
                 if settings.AUTO_UPGRADE is True:
                     for _ in range(settings.UPGRADES_COUNT):
                         available_upgrades = [
                             data for data in upgrades
                             if data['isAvailable'] is True
-                            and data['isExpired'] is False
-                            and data.get('cooldownSeconds', 0) == 0
-                            and data.get('maxLevel', data['level']) >= data['level']
+                               and data['isExpired'] is False
+                               and data.get('cooldownSeconds', 0) == 0
+                               and data.get('maxLevel', data['level']) >= data['level']
                         ]
 
                         queue = []
